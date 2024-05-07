@@ -35,8 +35,17 @@ def get_subject(sentence: str) -> str:
 
     for word in processed_sentence:
         # Ignore pronouns to hopefully answer questions such as "Who likes cats?" correctly.
+        context_word: str = ""
         if word.pos_ == "PROPN" or word.pos_ == "NOUN":
-            return word.lemma_
+            if word.lemma_ not in context_word:
+                context_word = word.lemma_
+            # Check for compound words & full names
+            if word.dep_ == "compound":
+                if "obj" in word.nbor(1).dep_ or word.nbor(1).dep_ == "appos":
+                    context_word = word.lemma_ + " " + word.nbor(1).lemma_
+                elif "obj" in word.nbor(-1).dep_ or word.nbor(-1).dep_ == "appos":
+                    context_word = word.nbor(-1).lemma_ + " " + word.lemma_
+            return context_word
 
 
 def parse_document(document: str) -> list[Concept]:
@@ -53,27 +62,38 @@ def parse_document(document: str) -> list[Concept]:
         sentence_context: str = ""
 
         word: tokens.Token
+        context_word: str = ""
         for word in sentence:
+            if word.lemma_ not in context_word:
+                context_word = word.lemma_
             if word.pos_ == "PROPN" or word.pos_ == "NOUN":
+                # Check for compound words & full names
+                if word.dep_ == "compound":
+                    if "obj" in word.nbor(1).dep_ or word.nbor(1).dep_ == "appos":
+                        sentence_context += " " + context_word
+                        context_word = word.lemma_ + " " + word.nbor(1).lemma_
+                        continue
+                    elif "obj" in word.nbor(-1).dep_ or word.nbor(-1).dep_ == "appos":
+                        context_word = word.nbor(-1).lemma_ + " " + word.lemma_
                 # If the concept doesn't exist, make it
-                if len(concepts) == 0 or word.lemma_ not in [concept.name for concept in concepts]:
-                    concepts.append(Concept(word.lemma_))
+                if len(concepts) == 0 or context_word not in [concept.name for concept in concepts]:
+                    concepts.append(Concept(context_word))
                 # If it's the subject of the current sentence, keep track of it
                 if word.dep_ == "nsubj":
                     for index, concept in enumerate(concepts):
-                        if concept.name == word.lemma_:
+                        if concept.name == context_word:
                             subject_index = index
                             break
                     concepts[subject_index].strength += 1
                     # Overwrite any previous context for the subject and start tracking context for the new subject
-                    sentence_context = word.lemma_
+                    sentence_context = context_word
                 # Otherwise, add it as a relation to the current subject
-                if word.dep_ != "compound" and word.lemma_ != concepts[subject_index].name:
-                    # TODO: Combine pobj with compound word.nbor(-1)
+                if word.dep_ != "compound" and context_word != concepts[subject_index].name:
                     sentence_context += " " + str(word)  # Might need to use lemmatization
-                    concepts[subject_index].related_concepts.append((word.lemma_, sentence_context, global_time_index))
+                    concepts[subject_index].related_concepts.append((context_word, sentence_context, global_time_index))
+                    continue
             # If we have a subject, keep track of context for any connective words between it and related concepts
-            if len(concepts) > 0 and subject_index != -1 and word.lemma_ != sentence_context:
+            if len(concepts) > 0 and subject_index != -1 and context_word != sentence_context:
                 sentence_context += " " + str(word)
     return concepts
 
@@ -102,7 +122,7 @@ def get_context(subject: str, concepts: list[Concept], num_context: int = 3, rec
 
         related_concept: tuple[str, str, int]
         for related_concept in concept.related_concepts:
-            if related_concept[0] == subject:
+            if related_concept[0] == subject or subject in related_concept[1]:
                 context_samples.append((related_concept[1], related_concept[2] * recency_multiplier + concept.strength))
 
     # If we're dealing with a sentence where the subject is not the concept in question, e.g., "Where does Brandon want
@@ -121,8 +141,8 @@ def get_context(subject: str, concepts: list[Concept], num_context: int = 3, rec
 
 
 # This would be where your data gets loaded!
-example_sentence: str = ("Brandon loves coffee. He wants to travel to Paris. He likes cats, and cats love him. Now, "
-                         "Brandon no longer likes them.")
+example_sentence: str = ("The film follows Max Parry (Kevin Howarth), a disturbed wedding video cameraman"
+                         )
 concept_list = parse_document(example_sentence)
 print(concept_list)
 
@@ -132,3 +152,6 @@ example_two = get_subject("Where does Brandon want to travel to?")
 print(get_context(example_two, concept_list, 3, 3))
 example_three = get_subject("Who likes cats?")
 print(get_context(example_three, concept_list, 3, 3))
+
+example_four = get_subject("Who portrays Max Parry?")
+print(get_context(example_four, concept_list, 3, 3))
