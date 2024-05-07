@@ -4,6 +4,15 @@ from spacy import tokens
 from warnings import warn
 from fastcoref import spacy_component  # Required for the "fastcoref" component config to work
 from torch import cuda
+from memory_profiler import profile
+import torch
+import os
+
+
+# memory usage
+initial_allocated = torch.cuda.memory_allocated()
+initial_reserved = torch.cuda.memory_reserved()
+
 
 if not cuda.is_available():
     warn("Using CPU for inference", RuntimeWarning)
@@ -98,6 +107,7 @@ def parse_document(document: str) -> list[Concept]:
     return concepts
 
 
+#@profile
 def get_context(subject: str, concepts: list[Concept], num_context: int = 3, recency_multiplier: int = 3) -> list[str]:
     """
 
@@ -141,17 +151,65 @@ def get_context(subject: str, concepts: list[Concept], num_context: int = 3, rec
 
 
 # This would be where your data gets loaded!
-example_sentence: str = ("The film follows Max Parry (Kevin Howarth), a disturbed wedding video cameraman"
-                         )
-concept_list = parse_document(example_sentence)
-print(concept_list)
+# example_sentence: str = ("The film follows Max Parry (Kevin Howarth), a disturbed wedding video cameraman"
+#                          )
+# concept_list = parse_document(example_sentence)
+# print(concept_list)
+#
+# example_one = get_subject("Who loves coffee?")
+# print(get_context(example_one, concept_list, 3, 3))
+# example_two = get_subject("Where does Brandon want to travel to?")
+# print(get_context(example_two, concept_list, 3, 3))
+# example_three = get_subject("Who likes cats?")
+# print(get_context(example_three, concept_list, 3, 3))
+# example_4 = get_subject("What role does Mark Stevenson play?")
+# print(get_context(example_4, concept_list, 3, 3))
+# example_four = get_subject("Who portrays Max Parry?")
+# print(get_context(example_four, concept_list, 3, 3))
 
-example_one = get_subject("Who loves coffee?")
-print(get_context(example_one, concept_list, 3, 3))
-example_two = get_subject("Where does Brandon want to travel to?")
-print(get_context(example_two, concept_list, 3, 3))
-example_three = get_subject("Who likes cats?")
-print(get_context(example_three, concept_list, 3, 3))
+def process_directory(directory_path):
+    correct_counter = 0
+    total_questions = 0
 
-example_four = get_subject("Who portrays Max Parry?")
-print(get_context(example_four, concept_list, 3, 3))
+    # Iterate through each file in the directory
+    for filename in os.listdir(directory_path):
+        if filename.endswith(".txt"):
+            file_path = os.path.join(directory_path, filename)
+            with open(file_path, "r") as file:
+                content = file.read()
+                sections = content.split("\n\n")
+
+                # Iterate through each section in the file
+                for section in sections:
+
+                    if section.startswith("PARAGRAPH"):
+                        # Parse the paragraph section
+                        concepts = parse_document(section.split("PARAGRAPH\n")[-1])
+
+                    else:
+                        # Iterate through the questions
+                        questions = [line.strip() for line in section.split("\n") if line.startswith("q:")]
+                        for question in questions:
+                            total_questions += 1
+                            question_text = question.split("q: ")[1]
+                            expected_answer = section.split(question)[1].split("a: ")[1].strip()
+                            #print(question_text, expected_answer)
+
+                            # Get the subject using the question text
+                            subject = get_subject(question_text)
+                            ans = get_context(subject, concepts, 1, 1)
+                            print(ans)
+                            if ans == expected_answer:
+                                correct_counter += 1
+
+    return correct_counter, total_questions
+
+
+# Example usage:
+directory_path = "C:/Users/michael.amberg/PycharmProjects/CS8321_Final_Project/temp"
+correct_count, total_questions = process_directory(directory_path)
+print(f"Total questions: {total_questions}")
+print(f"Correct answers: {correct_count}")
+print(f"Accuracy: {correct_count / total_questions * 100:.2f}%")
+
+
