@@ -7,12 +7,17 @@ from torch import cuda
 from memory_profiler import profile
 import torch
 import os
+from openai import OpenAI
+import time
 
 
 # memory usage
 initial_allocated = torch.cuda.memory_allocated()
 initial_reserved = torch.cuda.memory_reserved()
 
+client = OpenAI(
+    api_key = "you wish"
+)
 
 if not cuda.is_available():
     warn("Using CPU for inference", RuntimeWarning)
@@ -167,11 +172,24 @@ def get_context(subject: str, concepts: list[Concept], num_context: int = 3, rec
 # example_four = get_subject("Who portrays Max Parry?")
 # print(get_context(example_four, concept_list, 3, 3))
 
-def process_directory(directory_path):
+def chatgpt_response(prompt: str) -> str:
+    response = client.chat.completions.create(
+        model="gpt-3.5-turbo",
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": prompt}
+        ],
+        max_tokens=50,
+        n=1,
+        stop=["\nAnswer:"]
+    )
+    return response.choices[0].message["content"].strip()
+
+
+def process_directory(directory_path: str):
     correct_counter = 0
     total_questions = 0
 
-    # Iterate through each file in the directory
     for filename in os.listdir(directory_path):
         if filename.endswith(".txt"):
             file_path = os.path.join(directory_path, filename)
@@ -179,29 +197,34 @@ def process_directory(directory_path):
                 content = file.read()
                 sections = content.split("\n\n")
 
-                # Iterate through each section in the file
+                concepts = []
                 for section in sections:
-
                     if section.startswith("PARAGRAPH"):
-                        # Parse the paragraph section
                         concepts = parse_document(section.split("PARAGRAPH\n")[-1])
-
                     else:
-                        # Iterate through the questions
                         questions = [line.strip() for line in section.split("\n") if line.startswith("q:")]
                         for question in questions:
                             total_questions += 1
                             question_text = question.split("q: ")[1]
                             expected_answer = section.split(question)[1].split("a: ")[1].strip()
-                            #print(question_text, expected_answer)
 
-                            # Get the subject using the question text
                             subject = get_subject(question_text)
-                            ans = get_context(subject, concepts, 1, 1)
-                            print(ans)
-                            if ans == expected_answer:
-                                correct_counter += 1
+                            context_sentences = get_context(subject, concepts, 3, 3)
 
+                            prompt = "Using the following statements when necessary, answer the immediate question that follows. Do not include any extra information, only the answer. Each sentence in the following statements is true when read in chronological order:\n\nstatements:\n"
+                            for sentence in context_sentences:
+                                prompt += f". {sentence}\n"
+
+                            prompt += f"\nquestion:\n{question_text}\n\nAnswer:"
+
+                            answer = chatgpt_response(prompt)
+
+                            if answer.lower() == expected_answer.lower():
+                                correct_counter += 1
+                            else:
+                                print(f"Question: {question_text}")
+                                print(f"Expected: {expected_answer}, Got: {answer}\n")
+                            time.sleep(2.5)
     return correct_counter, total_questions
 
 
