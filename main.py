@@ -11,31 +11,6 @@ from openai import OpenAI
 import time
 
 
-# memory usage
-initial_allocated = torch.cuda.memory_allocated()
-initial_reserved = torch.cuda.memory_reserved()
-
-client = OpenAI(
-    api_key = "you wish"
-)
-
-if not cuda.is_available():
-    warn("Using CPU for inference", RuntimeWarning)
-
-# Alternatives: en_core_web_md, en_core_web_lg, en_core_web_trf
-# Don't forget to download the models! "python -m spacy download <model>"
-coref_resolver: spacy.Language = spacy.load("en_core_web_sm", exclude=["ner", "textcat", "paser", "lemmatizer"])
-# You can delete the config= stuff if you want to use a faster (but less accurate) system.
-# NOTE: You will need to download the model.bin file from
-# https://huggingface.co/biu-nlp/lingmess-coref/resolve/main/pytorch_model.bin?download=true and place it into the
-# lingmess-coref folder.
-coref_resolver.add_pipe("fastcoref", config={"model_architecture": "LingMessCoref",
-                                             "model_path": "lingmess-coref",
-                                             "device": "cuda" if cuda.is_available() else "cpu"})
-language_processor: spacy.Language = spacy.load("en_core_web_sm")
-
-
-@dataclass
 class Concept:
     name: str
     strength: int = 0
